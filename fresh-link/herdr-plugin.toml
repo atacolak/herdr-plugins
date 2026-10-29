@@ -1,8 +1,8 @@
 id = "herdr-fresh-open"
 name = "Fresh Open"
-version = "0.1.0"
+version = "0.2.0"
 min_herdr_version = "0.7.0"
-description = "Open file:// and local path links in this tab's Fresh pane"
+description = "Open file://, fresh.local, and local path links — files and directory explorers — in this tab's Fresh pane"
 platforms = ["linux"]
 
 [[actions]]
@@ -18,6 +18,6 @@ action = "open"
 
 [[link_handlers]]
 id = "file-path"
-title = "Open file path in Fresh"
+title = "Open file or directory path in Fresh"
 pattern = "^(/|~/|\\./|\\.\\./|[A-Za-z0-9._-]+/)"
 action = "open"

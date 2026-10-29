@@ -144,6 +144,69 @@ test("resolveTarget expands ~ against the given home directory", () => {
 	}
 });
 
+test("resolveTarget marks an existing directory so a Fresh explorer can root there", () => {
+	const cwd = uniqueDir("dir-target");
+	try {
+		mkdirSync(join(cwd, "src"));
+		expect(resolveTarget("src", cwd)).toEqual({
+			path: join(cwd, "src"),
+			isDirectory: true,
+		});
+	} finally {
+		rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("planFreshOpen splits instead of open-file when the target is a directory", () => {
+	expect(
+		planFreshOpen({
+			tabId: "tab-1",
+			spec: "/work/repo/src",
+			isDirectory: true,
+			panes: [
+				{
+					pane_id: "w:p7",
+					tab_id: "tab-1",
+					terminal_title_stripped: "src/main.rs — Fresh",
+					cwd: "/work/repo",
+				},
+			],
+			daemons: [{ name: "local-99-abc", cwd: "/work/repo" }],
+		}),
+	).toEqual({ kind: "split", spec: "/work/repo/src" });
+});
+
+test("planFreshOpen focuses a Fresh pane already rooted at the clicked directory", () => {
+	expect(
+		planFreshOpen({
+			tabId: "tab-1",
+			spec: "/work/repo/src",
+			isDirectory: true,
+			panes: [
+				{
+					pane_id: "w:p7",
+					tab_id: "tab-1",
+					terminal_title_stripped: "src — Fresh",
+					cwd: "/work/repo/src",
+				},
+			],
+			daemons: [{ name: "local-99-abc", cwd: "/work/repo/src" }],
+		}),
+	).toEqual({ kind: "focus", paneId: "w:p7" });
+});
+
+test("resolveTarget marks a file URI that points at an existing directory", () => {
+	const cwd = uniqueDir("file-uri-dir");
+	try {
+		expect(resolveTarget(`file://${cwd}`, "/work/elsewhere")).toEqual({
+			path: cwd,
+			isDirectory: true,
+		});
+	} finally {
+		rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
 test("planFreshOpen reuses same-tab Fresh daemon", () => {
 	const cwd = "/work/repo";
 	expect(
@@ -527,6 +590,138 @@ fi
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+test("openInFresh splits at the clicked directory instead of opening it as a file", async () => {
+	const root = uniqueDir("e2e-dir");
+	try {
+		mkdirSync(join(root, ".git"));
+		const docs = join(root, "docs");
+		mkdirSync(docs);
+		const calls: string[][] = [];
+		const existing = {
+			pane_id: "w:p1",
+			tab_id: "tab-1",
+			terminal_title_stripped: "omp",
+			cwd: root,
+		};
+		const created = {
+			pane_id: "w:p2",
+			tab_id: "tab-1",
+			terminal_title_stripped: "zsh",
+			cwd: root,
+		};
+		let lists = 0;
+		await openInFresh({
+			url: docs,
+			workspaceId: "ws",
+			tabId: "tab-1",
+			paneId: "w:p1",
+			cwd: root,
+			herdr: "herdr",
+			fresh: "fresh",
+			run(_bin, argv) {
+				calls.push([_bin, ...argv]);
+				if (_bin === "herdr" && argv[0] === "pane" && argv[1] === "list") {
+					lists += 1;
+					const panes = lists === 1 ? [existing] : [existing, created];
+					return {
+						status: 0,
+						stdout: JSON.stringify({
+							id: "cli:pane:list",
+							result: { type: "pane_list", panes },
+						}),
+					};
+				}
+				if (_bin === "fresh" && argv.includes("list")) {
+					return { status: 0, stdout: "Running daemons:\n  local-99-abc\n" };
+				}
+				return { status: 0, stdout: "" };
+			},
+			daemonCwd() {
+				return root;
+			},
+		});
+		expect(calls).toContainEqual([
+			"herdr",
+			"pane",
+			"split",
+			"--pane",
+			"w:p1",
+			"--direction",
+			"right",
+			"--cwd",
+			docs,
+			"--ratio",
+			"0.5",
+		]);
+		expect(calls).toContainEqual([
+			"herdr",
+			"pane",
+			"run",
+			"w:p2",
+			"fresh",
+			"--no-restore",
+			docs,
+		]);
+		expect(calls.some((call) => call.includes("open-file"))).toBe(false);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("openInFresh focuses a same-tab Fresh already rooted at the clicked directory", async () => {
+	const root = uniqueDir("e2e-dir-focus");
+	try {
+		mkdirSync(join(root, ".git"));
+		const docs = join(root, "docs");
+		mkdirSync(docs);
+		const calls: string[][] = [];
+		await openInFresh({
+			url: docs,
+			workspaceId: "ws",
+			tabId: "tab-1",
+			paneId: "w:p1",
+			cwd: root,
+			herdr: "herdr",
+			fresh: "fresh",
+			run(_bin, argv) {
+				calls.push([_bin, ...argv]);
+				if (_bin === "herdr" && argv[0] === "pane" && argv[1] === "list") {
+					return {
+						status: 0,
+						stdout: JSON.stringify({
+							id: "cli:pane:list",
+							result: {
+								type: "pane_list",
+								panes: [
+									{ pane_id: "w:p1", tab_id: "tab-1", terminal_title_stripped: "omp", cwd: root },
+									{
+										pane_id: "w:p7",
+										tab_id: "tab-1",
+										terminal_title_stripped: "docs — Fresh",
+										cwd: docs,
+									},
+								],
+							},
+						}),
+					};
+				}
+				if (_bin === "fresh" && argv.includes("list")) {
+					return { status: 0, stdout: "Running daemons:\n  local-99-abc\n" };
+				}
+				return { status: 0, stdout: "" };
+			},
+			daemonCwd() {
+				return docs;
+			},
+		});
+		expect(calls).toContainEqual(["herdr", "pane", "focus", "w:p7"]);
+		expect(calls.some((call) => call.includes("split"))).toBe(false);
+		expect(calls.some((call) => call.includes("open-file"))).toBe(false);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test("open.ts CLI opens file using HERDR env and argv", async () => {
 	const dir = uniqueDir("cli");
 	const log = join(dir, "calls.log");

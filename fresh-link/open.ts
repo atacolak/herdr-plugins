@@ -7,6 +7,7 @@ export type FileSpec = {
 	path: string;
 	line?: number;
 	column?: number;
+	isDirectory?: true;
 };
 
 export function formatSpec(target: FileSpec): string {
@@ -25,12 +26,27 @@ export function resolveTarget(token: string, cwd: string, home = defaultHome()):
 		return null;
 	}
 	if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-		return parseFreshLocalUri(trimmed);
+		return markDirectory(parseFreshLocalUri(trimmed));
 	}
 	if (trimmed.startsWith("file://")) {
-		return parseFileUri(trimmed);
+		return markDirectory(parseFileUri(trimmed));
 	}
 	return resolvePlainPath(trimmed, cwd, home);
+}
+
+function markDirectory(spec: FileSpec | null): FileSpec | null {
+	if (!spec || spec.line != null || !isDirectoryPath(spec.path)) {
+		return spec;
+	}
+	return { path: spec.path, isDirectory: true };
+}
+
+function isDirectoryPath(path: string): boolean {
+	try {
+		return statSync(path).isDirectory();
+	} catch {
+		return false;
+	}
 }
 
 function parseFreshLocalUri(token: string): FileSpec | null {
@@ -85,11 +101,11 @@ function resolvePlainPath(token: string, cwd: string, home: string): FileSpec | 
 	}
 	const resolved = resolveAgainstCwd(spec.path, cwd, home);
 	if (existsSync(resolved)) {
-		return { ...spec, path: resolved };
+		return markDirectory({ ...spec, path: resolved });
 	}
 	const full = resolveAgainstCwd(token, cwd, home);
 	if (existsSync(full)) {
-		return { path: full };
+		return markDirectory({ path: full });
 	}
 	return null;
 }
@@ -145,6 +161,7 @@ export type FreshPlan =
 export function planFreshOpen(input: {
 	tabId: string;
 	spec: string;
+	isDirectory?: boolean;
 	panes: PaneSnapshot[];
 	daemons: FreshDaemon[];
 }): FreshPlan {
@@ -152,6 +169,13 @@ export function planFreshOpen(input: {
 		(pane) => pane.tab_id === input.tabId && isFreshPane(pane),
 	);
 	if (fresh) {
+		if (input.isDirectory) {
+			// `fresh --cmd daemon open-file` refuses directories, so a Fresh
+			// already rooted at the clicked folder is the only reusable pane.
+			return isRootedAt(fresh, input.spec)
+				? { kind: "focus", paneId: fresh.pane_id }
+				: { kind: "split", spec: input.spec };
+		}
 		const daemon = input.daemons.find((item) => item.cwd === fresh.cwd);
 		if (daemon) {
 			return {
@@ -164,6 +188,11 @@ export function planFreshOpen(input: {
 		return { kind: "focus", paneId: fresh.pane_id };
 	}
 	return { kind: "split", spec: input.spec };
+}
+
+function isRootedAt(pane: PaneSnapshot, directory: string): boolean {
+	if (!pane.cwd) return false;
+	return resolve(pane.cwd) === resolve(directory);
 }
 
 function isFreshPane(pane: PaneSnapshot): boolean {
@@ -247,7 +276,13 @@ export async function openInFresh(input: OpenInFreshInput): Promise<void> {
 		input.run(input.fresh, ["--cmd", "daemon", "list"]).stdout,
 		input.daemonCwd,
 	);
-	const plan = planFreshOpen({ tabId: input.tabId, spec, panes, daemons });
+	const plan = planFreshOpen({
+		tabId: input.tabId,
+		spec,
+		isDirectory: target.isDirectory,
+		panes,
+		daemons,
+	});
 
 	if (plan.kind === "open-file") {
 		input.run(input.fresh, ["--cmd", "daemon", "open-file", plan.daemon, plan.spec]);
@@ -274,7 +309,9 @@ export async function openInFresh(input: OpenInFreshInput): Promise<void> {
 		"--direction",
 		direction,
 		"--cwd",
-		resolveExplorerRoot(target.path, input.cwd),
+		target.isDirectory
+			? resolve(target.path)
+			: resolveExplorerRoot(target.path, input.cwd),
 		"--ratio",
 		"0.5",
 	]);

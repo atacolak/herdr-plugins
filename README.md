@@ -4,7 +4,7 @@ Small, self-contained [Herdr](https://herdr.dev) plugins.
 
 | plugin | what it does |
 | --- | --- |
-| [`fresh-link`](./fresh-link) | open `file://`, `fresh.local`, and local `path:line:col` links in the active tab's Fresh pane |
+| [`fresh-link`](./fresh-link) | open `file://`, `fresh.local`, and local `path:line:col` links — plus directory links as Fresh explorers — in the active tab's Fresh pane |
 
 ```bash
 herdr plugin install atacolak/herdr-plugins/fresh-link   # install
