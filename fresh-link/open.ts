@@ -35,18 +35,17 @@ export function resolveTarget(token: string, cwd: string, home = defaultHome()):
 }
 
 function markDirectory(spec: FileSpec | null): FileSpec | null {
-	if (!spec || spec.line != null || !isDirectoryPath(spec.path)) {
+	if (!spec || spec.line != null) {
+		return spec;
+	}
+	try {
+		if (!statSync(spec.path).isDirectory()) {
+			return spec;
+		}
+	} catch {
 		return spec;
 	}
 	return { path: spec.path, isDirectory: true };
-}
-
-function isDirectoryPath(path: string): boolean {
-	try {
-		return statSync(path).isDirectory();
-	} catch {
-		return false;
-	}
 }
 
 function parseFreshLocalUri(token: string): FileSpec | null {
@@ -172,7 +171,7 @@ export function planFreshOpen(input: {
 		if (input.isDirectory) {
 			// `fresh --cmd daemon open-file` refuses directories, so a Fresh
 			// already rooted at the clicked folder is the only reusable pane.
-			return isRootedAt(fresh, input.spec)
+			return fresh.cwd && resolve(fresh.cwd) === resolve(input.spec)
 				? { kind: "focus", paneId: fresh.pane_id }
 				: { kind: "split", spec: input.spec };
 		}
@@ -188,11 +187,6 @@ export function planFreshOpen(input: {
 		return { kind: "focus", paneId: fresh.pane_id };
 	}
 	return { kind: "split", spec: input.spec };
-}
-
-function isRootedAt(pane: PaneSnapshot, directory: string): boolean {
-	if (!pane.cwd) return false;
-	return resolve(pane.cwd) === resolve(directory);
 }
 
 function isFreshPane(pane: PaneSnapshot): boolean {
