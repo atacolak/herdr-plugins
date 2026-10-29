@@ -1,0 +1,23 @@
+id = "herdr-fresh-open"
+name = "Fresh Open"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Open file:// and local path links in this tab's Fresh pane"
+platforms = ["linux"]
+
+[[actions]]
+id = "open"
+title = "Open in Fresh"
+command = ["bun", "open.ts"]
+
+[[link_handlers]]
+id = "file-uri"
+title = "Open file URI in Fresh"
+pattern = "^(file://|https?://fresh\\.local/)"
+action = "open"
+
+[[link_handlers]]
+id = "file-path"
+title = "Open file path in Fresh"
+pattern = "^(/|~/|\\./|\\.\\./|[A-Za-z0-9._-]+/)"
+action = "open"
